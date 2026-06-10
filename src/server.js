@@ -40,7 +40,7 @@ app.post('/api/generate', upload.array('references', 6), async (req, res) => {
   try {
     const theme = (req.body.theme || '').trim();
     const styleGuidelines = (req.body.style || '').trim();
-    const count = Math.min(Math.max(parseInt(req.body.count, 10) || 4, 1), 12);
+    const count = Math.min(Math.max(parseInt(req.body.count, 10) || 4, 1), 40);
     const complexity = req.body.complexity || 'medium';
     const title = (req.body.title || 'My Colouring Book').trim();
 
@@ -60,14 +60,28 @@ app.post('/api/generate', upload.array('references', 6), async (req, res) => {
       complexity,
     });
 
-    // 2. Generate + 3. clean each page
+    // 2. Generate + 3. clean each page, with limited concurrency so a 28-page
+    // book doesn't take ~9 minutes of sequential waiting. Results are placed by
+    // index to preserve page order in the PDF.
     const provider = selectProvider();
-    const pages = [];
-    for (const prompt of prompts) {
-      const raw = await provider.generate(prompt, { size: provider.name === 'mock' ? 1024 : '1024x1024' });
-      const clean = await toLineArt(raw);
-      pages.push({ buffer: clean, prompt });
+    const concurrency = Math.min(
+      provider.name === 'mock' ? 8 : 4,
+      prompts.length,
+    );
+    const pages = new Array(prompts.length);
+    let nextIndex = 0;
+    async function worker() {
+      while (true) {
+        const i = nextIndex++;
+        if (i >= prompts.length) break;
+        const prompt = prompts[i];
+        const raw = await provider.generate(prompt, {
+          size: provider.name === 'mock' ? 1024 : '1024x1024',
+        });
+        pages[i] = { buffer: await toLineArt(raw), prompt };
+      }
     }
+    await Promise.all(Array.from({ length: concurrency }, worker));
 
     // 4. Assemble PDF
     const pdf = await buildPdf(pages, { title });
