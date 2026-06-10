@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Colouring Book Generator</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <header>
+      <h1>🎨 Colouring Book Generator</h1>
+      <p class="sub">Generate original line-art pages guided by your style &amp; theme references.</p>
+      <div id="status" class="status"></div>
+    </header>
+
+    <main>
+      <form id="form" class="card">
+        <label>
+          Book title
+          <input name="title" type="text" value="My Colouring Book" />
+        </label>
+
+        <label>
+          Theme <span class="req">*</span>
+          <input name="theme" type="text" placeholder="e.g. friendly jungle animals" required />
+        </label>
+
+        <label>
+          Style guidelines (optional)
+          <textarea name="style" rows="3" placeholder="e.g. bold rounded outlines, cute kawaii faces, lots of open space for young children"></textarea>
+        </label>
+
+        <div class="row">
+          <label>
+            Pages
+            <input name="count" type="number" min="1" max="12" value="4" />
+          </label>
+          <label>
+            Detail level
+            <select name="complexity">
+              <option value="simple">Simple (young children)</option>
+              <option value="medium" selected>Medium</option>
+              <option value="detailed">Detailed (adults)</option>
+            </select>
+          </label>
+        </div>
+
+        <label>
+          Reference images (optional, up to 6) — used for style/theme inspiration
+          <input name="references" type="file" accept="image/*" multiple />
+        </label>
+
+        <button type="submit" id="go">Generate book</button>
+      </form>
+
+      <section id="results" class="results hidden">
+        <div class="results-head">
+          <h2>Your designs</h2>
+          <a id="pdf" class="pdf-btn" href="#" target="_blank">⬇ Download PDF</a>
+        </div>
+        <p id="meta" class="meta"></p>
+        <div id="grid" class="grid"></div>
+      </section>
+    </main>
+
+    <script src="/app.js"></script>
+  </body>
+</html>

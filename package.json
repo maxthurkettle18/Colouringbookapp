@@ -1,0 +1,21 @@
+{
+  "name": "colouring-book-generator",
+  "version": "0.1.0",
+  "description": "Generate original colouring-book line-art designs guided by style and theme references.",
+  "type": "module",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js"
+  },
+  "license": "MIT",
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.65.0",
+    "dotenv": "^16.4.5",
+    "express": "^4.21.2",
+    "multer": "^2.1.1",
+    "openai": "^4.77.0",
+    "pdfkit": "^0.15.1",
+    "sharp": "^0.33.5"
+  }
+}
