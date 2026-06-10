@@ -2,6 +2,7 @@ import 'dotenv/config';
 import express from 'express';
 import multer from 'multer';
 import path from 'node:path';
+import { randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import fs from 'node:fs/promises';
 
@@ -17,11 +18,27 @@ const OUT_DIR = path.join(ROOT, 'out');
 const app = express();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 8 * 1024 * 1024 } });
 
-app.use(express.json({ limit: '2mb' }));
+app.use(express.json({ limit: '4mb' }));
 app.use(express.static(path.join(ROOT, 'public')));
 app.use('/out', express.static(OUT_DIR));
 
-// Report which backends are active so the UI can show status.
+// ---- In-memory job store (prototype). Jobs expire after 30 minutes. ----
+const jobs = new Map();
+function putJob(job) {
+  jobs.set(job.id, job);
+  setTimeout(() => jobs.delete(job.id), 30 * 60 * 1000).unref?.();
+}
+
+function pageSize(providerName) {
+  return providerName === 'mock' ? 1024 : '1024x1024';
+}
+
+async function renderPage(provider, prompt, quality) {
+  const raw = await provider.generate(prompt, { size: pageSize(provider.name), quality });
+  return { buffer: await toLineArt(raw), prompt };
+}
+
+// ---- Status: which backends are live ----
 app.get('/api/status', (req, res) => {
   const provider = selectProvider();
   res.json({
@@ -34,15 +51,15 @@ app.get('/api/status', (req, res) => {
   });
 });
 
-// Main generation endpoint. Accepts theme/style + optional reference images,
-// returns the cleaned page images (as data URLs) and a downloadable PDF path.
-app.post('/api/generate', upload.array('references', 6), async (req, res) => {
+// ---- Phase 1: build the full prompt set, render ONE draft page for approval ----
+app.post('/api/preview', upload.array('references', 6), async (req, res) => {
   try {
     const theme = (req.body.theme || '').trim();
     const styleGuidelines = (req.body.style || '').trim();
     const count = Math.min(Math.max(parseInt(req.body.count, 10) || 4, 1), 40);
     const complexity = req.body.complexity || 'medium';
     const title = (req.body.title || 'My Colouring Book').trim();
+    const quality = ['low', 'medium', 'high'].includes(req.body.quality) ? req.body.quality : 'low';
 
     if (!theme) return res.status(400).json({ error: 'Please provide a theme.' });
 
@@ -51,7 +68,8 @@ app.post('/api/generate', upload.array('references', 6), async (req, res) => {
       mediaType: f.mimetype,
     }));
 
-    // 1. Prompts (Claude or template fallback)
+    // One Claude call builds prompts for the WHOLE book. Approving later spends
+    // only on images — no further token cost.
     const { prompts, source } = await buildPrompts({
       theme,
       styleGuidelines,
@@ -60,49 +78,94 @@ app.post('/api/generate', upload.array('references', 6), async (req, res) => {
       complexity,
     });
 
-    // 2. Generate + 3. clean each page, with limited concurrency so a 28-page
-    // book doesn't take ~9 minutes of sequential waiting. Results are placed by
-    // index to preserve page order in the PDF.
     const provider = selectProvider();
-    const concurrency = Math.min(
-      provider.name === 'mock' ? 8 : 4,
-      prompts.length,
-    );
-    const pages = new Array(prompts.length);
-    let nextIndex = 0;
-    async function worker() {
-      while (true) {
-        const i = nextIndex++;
-        if (i >= prompts.length) break;
-        const prompt = prompts[i];
-        const raw = await provider.generate(prompt, {
-          size: provider.name === 'mock' ? 1024 : '1024x1024',
-        });
-        pages[i] = { buffer: await toLineArt(raw), prompt };
-      }
-    }
-    await Promise.all(Array.from({ length: concurrency }, worker));
+    const firstPage = await renderPage(provider, prompts[0], quality);
 
-    // 4. Assemble PDF
-    const pdf = await buildPdf(pages, { title });
-    await fs.mkdir(OUT_DIR, { recursive: true });
-    const stamp = Date.now();
-    const pdfName = `colouring-book-${stamp}.pdf`;
-    await fs.writeFile(path.join(OUT_DIR, pdfName), pdf);
+    const job = {
+      id: randomUUID(),
+      createdAt: Date.now(),
+      settings: { title, quality, providerName: provider.name },
+      prompts,
+      pages: new Array(prompts.length),
+      status: 'preview',
+      progress: { done: 1, total: prompts.length },
+      pdfPath: null,
+      error: null,
+    };
+    job.pages[0] = firstPage;
+    putJob(job);
 
     res.json({
+      jobId: job.id,
+      count: prompts.length,
       promptSource: source,
       imageProvider: provider.name,
-      pdf: `/out/${pdfName}`,
-      pages: pages.map((p) => ({
-        prompt: p.prompt,
-        image: `data:image/png;base64,${p.buffer.toString('base64')}`,
-      })),
+      preview: {
+        prompt: firstPage.prompt,
+        image: `data:image/png;base64,${firstPage.buffer.toString('base64')}`,
+      },
     });
   } catch (err) {
-    console.error('[generate] error:', err);
-    res.status(500).json({ error: err.message || 'Generation failed' });
+    console.error('[preview] error:', err);
+    res.status(500).json({ error: err.message || 'Preview failed' });
   }
+});
+
+// ---- Phase 2: approve -> generate the remaining pages in the background ----
+app.post('/api/book/:id/approve', (req, res) => {
+  const job = jobs.get(req.params.id);
+  if (!job) return res.status(404).json({ error: 'Job not found or expired. Please preview again.' });
+  if (job.status === 'generating') return res.json({ started: true, total: job.progress.total });
+
+  job.status = 'generating';
+  res.json({ started: true, total: job.progress.total });
+
+  // Run async after responding. Page 0 already exists (the approved draft).
+  (async () => {
+    try {
+      const provider = selectProvider();
+      const { quality } = job.settings;
+      const concurrency = Math.min(provider.name === 'mock' ? 8 : 4, job.prompts.length - 1) || 1;
+
+      let nextIndex = 1; // page 0 is the approved draft
+      async function worker() {
+        while (true) {
+          const i = nextIndex++;
+          if (i >= job.prompts.length) break;
+          job.pages[i] = await renderPage(provider, job.prompts[i], quality);
+          job.progress.done++;
+        }
+      }
+      await Promise.all(Array.from({ length: concurrency }, worker));
+
+      const pdf = await buildPdf(job.pages, { title: job.settings.title });
+      await fs.mkdir(OUT_DIR, { recursive: true });
+      const pdfName = `colouring-book-${Date.now()}.pdf`;
+      await fs.writeFile(path.join(OUT_DIR, pdfName), pdf);
+      job.pdfPath = `/out/${pdfName}`;
+      job.status = 'done';
+    } catch (err) {
+      console.error('[approve] generation error:', err);
+      job.status = 'error';
+      job.error = err.message || 'Generation failed';
+    }
+  })();
+});
+
+// ---- Poll progress; returns full pages + PDF link once done ----
+app.get('/api/book/:id/status', (req, res) => {
+  const job = jobs.get(req.params.id);
+  if (!job) return res.status(404).json({ error: 'Job not found or expired.' });
+
+  const body = { status: job.status, progress: job.progress, error: job.error };
+  if (job.status === 'done') {
+    body.pdf = job.pdfPath;
+    body.pages = job.pages.map((p) => ({
+      prompt: p.prompt,
+      image: `data:image/png;base64,${p.buffer.toString('base64')}`,
+    }));
+  }
+  res.json(body);
 });
 
 const PORT = process.env.PORT || 3000;

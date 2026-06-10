@@ -46,13 +46,47 @@
         </div>
 
         <label>
+          Image quality (affects cost per page)
+          <select name="quality">
+            <option value="low" selected>Draft — lowest cost (~$0.01/page)</option>
+            <option value="medium">Medium (~$0.04/page)</option>
+            <option value="high">High (~$0.17/page)</option>
+          </select>
+        </label>
+
+        <label>
           Reference images (optional, up to 6) — used for style/theme inspiration
           <input name="references" type="file" accept="image/*" multiple />
         </label>
 
-        <button type="submit" id="go">Generate book</button>
+        <button type="submit" id="go">Preview style (1 page)</button>
+        <p class="hint">Generates a single draft page first so you can approve the style before spending on the full book.</p>
       </form>
 
+      <!-- Step 2: approve the draft style -->
+      <section id="preview" class="results hidden">
+        <h2>Style draft</h2>
+        <p id="previewMeta" class="meta"></p>
+        <div class="preview-wrap">
+          <div class="tile preview-tile">
+            <img id="previewImg" alt="style draft" />
+            <div id="previewCap" class="cap"></div>
+          </div>
+          <div class="approve-actions">
+            <button id="approve" type="button">✓ Approve &amp; generate all pages</button>
+            <button id="retry" type="button" class="ghost">↻ Try a different draft</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- Step 3: progress -->
+      <section id="progress" class="results hidden">
+        <h2>Generating your book…</h2>
+        <div class="bar"><div id="barFill" class="bar-fill"></div></div>
+        <p id="progressLabel" class="meta"></p>
+      </section>
+
+      <!-- Step 4: results -->
       <section id="results" class="results hidden">
         <div class="results-head">
           <h2>Your designs</h2>

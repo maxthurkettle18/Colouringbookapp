@@ -16,11 +16,13 @@ export function isAvailable() {
 export async function generate(prompt, opts = {}) {
   const client = new OpenAI();
   const size = opts.size || '1024x1024';
+  const quality = opts.quality || 'low'; // 'low' | 'medium' | 'high'
 
   const result = await client.images.generate({
     model: 'gpt-image-1',
     prompt,
     size,
+    quality,
     n: 1,
   });
 

@@ -108,3 +108,45 @@ button:disabled { opacity: 0.6; cursor: progress; }
   color: var(--muted);
   padding: 0.5rem 0.6rem;
 }
+.hint {
+  font-family: ui-sans-serif, system-ui, sans-serif;
+  font-size: 0.8rem;
+  color: var(--muted);
+  margin: -0.4rem 0 0;
+}
+button.ghost {
+  background: transparent;
+  color: var(--ink);
+  border: 1px solid var(--border);
+}
+.preview-wrap {
+  display: grid;
+  grid-template-columns: minmax(240px, 360px) 1fr;
+  gap: 1.5rem;
+  align-items: start;
+  margin-top: 1rem;
+}
+.preview-tile { max-width: 360px; }
+.approve-actions {
+  display: grid;
+  gap: 0.75rem;
+  align-content: start;
+}
+.approve-actions button { width: 100%; }
+.bar {
+  height: 14px;
+  background: #e9e4dc;
+  border-radius: 999px;
+  overflow: hidden;
+  margin: 0.5rem 0;
+}
+.bar-fill {
+  height: 100%;
+  width: 0%;
+  background: var(--accent);
+  transition: width 0.4s ease;
+}
+@media (max-width: 640px) {
+  .preview-wrap { grid-template-columns: 1fr; }
+  .row { grid-template-columns: 1fr; }
+}
